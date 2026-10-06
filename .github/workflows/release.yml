@@ -1,0 +1,81 @@
+name: Release
+
+# Bump `version` in Cargo.toml and push to main: this builds the binaries,
+# tags v<version> and publishes the release. Versions with a dash (alpha,
+# beta, rc) become pre-releases. A version that is already released is skipped.
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.toml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      new: ${{ steps.v.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            echo "$tag is already released, nothing to do."
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: version
+    if: needs.version.outputs.new == 'true'
+    strategy:
+      matrix:
+        include:
+          # Built on 22.04 so the binary runs on older glibc and OpenSSL 3.
+          - { os: ubuntu-22.04, name: linux-x86_64 }
+          - { os: ubuntu-22.04-arm, name: linux-aarch64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - run: cargo build --profile dist --locked
+      - name: Package
+        run: |
+          dir="mirage-${{ needs.version.outputs.tag }}-${{ matrix.name }}"
+          mkdir "$dir"
+          cp target/dist/mirage LICENSE README.md "$dir/"
+          tar czf "$dir.tar.gz" "$dir"
+          sha256sum "$dir.tar.gz" > "$dir.tar.gz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: mirage-*.tar.gz*
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          pre=""
+          [[ "$TAG" == *-* ]] && pre="--prerelease"
+          gh release create "$TAG" $pre --target "$GITHUB_SHA" --generate-notes --title "Mirage $TAG" dist/*
