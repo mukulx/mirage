@@ -1,12 +1,12 @@
 name: Release
 
-# Bump `version` in Cargo.toml and push to main: this builds the binaries,
-# tags v<version> and publishes the release. Versions with a dash (alpha,
-# beta, rc) become pre-releases. A version that is already released is skipped.
+# Push to main: if the `version` in Cargo.toml has no release yet, this builds
+# the binaries, tags v<version> and publishes it. Versions with a dash (alpha,
+# beta, rc) become pre-releases. A version that is already released is skipped,
+# so bumping the version is all it takes to ship.
 on:
   push:
     branches: [main]
-    paths: [Cargo.toml]
   workflow_dispatch:
 
 permissions:
