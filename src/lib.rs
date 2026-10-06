@@ -7,3 +7,4 @@ pub mod launcher;
 pub mod menu;
 pub mod modpack;
 pub mod term;
+pub mod tui;
